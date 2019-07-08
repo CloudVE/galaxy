@@ -26,14 +26,19 @@ from six.moves import configparser
 from galaxy.containers import parse_containers_config
 from galaxy.exceptions import ConfigurationError
 from galaxy.tool_util.deps.container_resolvers.mulled import DEFAULT_CHANNELS
-from galaxy.util import ExecutionTimer
-from galaxy.util import listify
-from galaxy.util import string_as_bool
-from galaxy.util import unicodify
+from galaxy.util import (
+    ExecutionTimer,
+    listify,
+    string_as_bool,
+    unicodify,
+)
 from galaxy.util.dbkeys import GenomeBuilds
 from galaxy.util.logging import LOGLV_TRACE
 from galaxy.web.formatting import expand_pretty_datetime_format
-from galaxy.web.stack import get_stack_facts, register_postfork_function
+from galaxy.web_stack import (
+    get_stack_facts,
+    register_postfork_function
+)
 from .version import VERSION_MAJOR
 
 log = logging.getLogger(__name__)
@@ -50,7 +55,7 @@ PATH_DEFAULTS = dict(
     error_report_file=['config/error_report.yml', 'config/error_report.yml.sample'],
     oidc_config_file=['config/oidc_config.yml', 'config/oidc_config.yml.sample'],
     oidc_backends_config_file=['config/oidc_backends_config.yml', 'config/oidc_backends_config.yml.sample'],
-    dependency_resolvers_config_file=['config/dependency_resolvers_conf.xml', 'dependency_resolvers_conf.xml'],
+    dependency_resolvers_config_file=['config/dependency_resolvers_conf.xml', 'dependency_resolvers_conf.xml', None],
     job_resource_params_file=['config/job_resource_params_conf.xml', 'job_resource_params_conf.xml'],
     workflow_resource_params_file=['config/workflow_resource_params_conf.xml', 'workflow_resource_params_conf.xml'],
     migrated_tools_config=['migrated_tools_conf.xml', 'config/migrated_tools_conf.xml'],
@@ -106,7 +111,7 @@ LOGGING_CONFIG_DEFAULT = {
     },
     'filters': {
         'stack': {
-            '()': 'galaxy.web.stack.application_stack_log_filter',
+            '()': 'galaxy.web_stack.application_stack_log_filter',
         },
     },
     'handlers': {
@@ -120,7 +125,7 @@ LOGGING_CONFIG_DEFAULT = {
     },
     'formatters': {
         'stack': {
-            '()': 'galaxy.web.stack.application_stack_log_formatter',
+            '()': 'galaxy.web_stack.application_stack_log_formatter',
         },
     },
 }
@@ -142,6 +147,9 @@ def find_path(kwargs, var, root):
         path = kwargs.get(var)
     else:
         for default in defaults:
+            if default is None:
+                # if None is the final default - just return that.
+                return None
             if os.path.exists(resolve_path(default, root)):
                 path = default
                 break
@@ -498,23 +506,16 @@ class Configuration(object):
         self.tool_ngram_maxsize = kwargs.get("tool_ngram_maxsize", 4)
         default_tool_test_data_directories = os.environ.get("GALAXY_TEST_FILE_DIR", resolve_path("test-data", self.root))
         self.tool_test_data_directories = kwargs.get("tool_test_data_directories", default_tool_test_data_directories)
-        # Location for tool dependencies.
-        use_tool_dependencies, tool_dependency_dir, use_cached_dependency_manager, tool_dependency_cache_dir, precache_dependencies = \
-            parse_dependency_options(kwargs, self.root, self.dependency_resolvers_config_file)
-        self.use_tool_dependencies = use_tool_dependencies
-        self.tool_dependency_dir = tool_dependency_dir
-        self.use_cached_dependency_manager = use_cached_dependency_manager
-        self.tool_dependency_cache_dir = tool_dependency_cache_dir
-        self.precache_dependencies = precache_dependencies
         # Deployers may either specify a complete list of mapping files or get the default for free and just
         # specify a local mapping file to adapt and extend the default one.
-        if "conda_mapping_files" in kwargs:
-            self.conda_mapping_files = kwargs["conda_mapping_files"]
-        else:
-            self.conda_mapping_files = [
+        if "conda_mapping_files" not in kwargs:
+            conda_mapping_files = [
                 self.local_conda_mapping_file,
                 os.path.join(self.root, "lib", "galaxy", "tool_util", "deps", "resolvers", "default_conda_mapping.yml"),
             ]
+            # dependency resolution options are consumed via config_dict - so don't populate
+            # self, populate config_dict
+            self.config_dict["conda_mapping_files"] = conda_mapping_files
 
         self.enable_beta_mulled_containers = string_as_bool(kwargs.get('enable_beta_mulled_containers', 'False'))
         containers_resolvers_config_file = kwargs.get('containers_resolvers_config_file', None)
@@ -524,7 +525,10 @@ class Configuration(object):
 
         involucro_path = kwargs.get('involucro_path', None)
         if involucro_path is None:
-            involucro_path = os.path.join(tool_dependency_dir or "database", "involucro")
+            target_dir = kwargs.get("tool_dependency_dir", "database/dependencies")
+            if target_dir == "none":
+                target_dir = "database"
+            involucro_path = os.path.join(target_dir, "involucro")
         self.involucro_path = resolve_path(involucro_path, self.root)
         self.involucro_auto_init = string_as_bool(kwargs.get('involucro_auto_init', True))
         mulled_channels = kwargs.get('mulled_channels')
@@ -844,7 +848,7 @@ class Configuration(object):
             try:
                 os.makedirs(path)
             except Exception as e:
-                raise ConfigurationError("Unable to create missing directory: %s\n%s" % (path, e))
+                raise ConfigurationError("Unable to create missing directory: %s\n%s" % (path, unicodify(e)))
 
     def check(self):
         paths_to_check = [self.root, self.tool_path, self.tool_data_path, self.template_path]
@@ -854,7 +858,7 @@ class Configuration(object):
                 try:
                     os.makedirs(path)
                 except Exception as e:
-                    raise ConfigurationError("Unable to create missing directory: %s\n%s" % (path, e))
+                    raise ConfigurationError("Unable to create missing directory: %s\n%s" % (path, unicodify(e)))
         # Create the directories that it makes sense to create
         for path in (self.new_file_path, self.template_cache, self.ftp_upload_dir,
                      self.library_import_dir, self.user_library_import_dir,
@@ -921,31 +925,6 @@ class Configuration(object):
             return string
 
         return [parse(v) for v in allowed_origin_hostnames if v]
-
-
-def parse_dependency_options(kwargs, root, dependency_resolvers_config_file):
-    # Location for tool dependencies.
-    tool_dependency_dir = kwargs.get("tool_dependency_dir", "database/dependencies")
-    if tool_dependency_dir.lower() == "none":
-        tool_dependency_dir = None
-
-    if tool_dependency_dir is not None:
-        tool_dependency_dir = resolve_path(tool_dependency_dir, root)
-        # Setting the following flag to true will ultimately cause tool dependencies
-        # to be located in the shell environment and used by the job that is executing
-        # the tool.
-        use_tool_dependencies = True
-        tool_dependency_cache_dir = kwargs.get('tool_dependency_cache_dir', os.path.join(tool_dependency_dir, '_cache'))
-        use_cached_dependency_manager = string_as_bool(kwargs.get("use_cached_dependency_manager", 'False'))
-        precache_dependencies = string_as_bool(kwargs.get("precache_dependencies", 'True'))
-    else:
-        tool_dependency_dir = None
-        use_tool_dependencies = os.path.exists(dependency_resolvers_config_file)
-        tool_dependency_cache_dir = None
-        precache_dependencies = False
-        use_cached_dependency_manager = False
-
-    return use_tool_dependencies, tool_dependency_dir, use_cached_dependency_manager, tool_dependency_cache_dir, precache_dependencies
 
 
 def get_database_engine_options(kwargs, model_prefix=''):
@@ -1224,3 +1203,7 @@ class ConfiguresGalaxyMixin(object):
             except Exception:
                 log.info("Waiting for database: attempt %d of %d" % (i, attempts))
                 time.sleep(pause)
+
+    @property
+    def tool_dependency_dir(self):
+        return self.toolbox.dependency_manager.default_base_path

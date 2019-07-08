@@ -54,7 +54,7 @@ class AdminToolshed(AdminGalaxy):
             message = 'The <b>%s</b> repository has been activated.' % escape(repository.name)
             status = 'done'
         except Exception as e:
-            error_message = "Error activating repository %s: %s" % (escape(repository.name), str(e))
+            error_message = "Error activating repository %s: %s" % (escape(repository.name), unicodify(e))
             log.exception(error_message)
             message = '%s.<br/>You may be able to resolve this by uninstalling and then reinstalling the repository.  Click <a href="%s">here</a> to uninstall the repository.' \
                 % (error_message, web.url_for(controller='admin_toolshed', action='deactivate_or_uninstall_repository', id=trans.security.encode_id(repository.id)))
@@ -524,11 +524,11 @@ class AdminToolshed(AdminGalaxy):
                     (escape(str(repository.name)), updating_to_changeset_revision)
                 self.initiate_tool_dependency_installation(trans, tool_dependencies, message=message, status=status)
         # Handle tool dependencies check box.
-        if trans.app.config.tool_dependency_dir is None:
+        if not trans.app.toolbox.dependency_manager.uses_tool_shed_dependencies:
             if tool_dependencies_dict:
                 message = ("Tool dependencies defined in this repository can be automatically installed if you set "
                            "the value of your <b>tool_dependency_dir</b> setting in your Galaxy config file "
-                           "(galaxy.ini) and restart your Galaxy server.")
+                           "(galaxy.yml) and restart your Galaxy server.")
                 status = "warning"
             install_tool_dependencies_check_box_checked = False
         else:
@@ -577,7 +577,7 @@ class AdminToolshed(AdminGalaxy):
             tsr_ids_for_monitoring = [trans.security.encode_id(tsr.id) for tsr in tool_shed_repositories]
             return json.dumps(tsr_ids_for_monitoring)
         except install_manager.RepositoriesInstalledException as e:
-            return self.message_exception(trans, str(e))
+            return self.message_exception(trans, unicodify(e))
 
     @web.expose
     @web.require_admin
@@ -696,7 +696,7 @@ class AdminToolshed(AdminGalaxy):
                     message = 'No selected tool dependencies can be uninstalled, you may need to use the <b>Repair repository</b> feature.'
                     status = 'error'
             elif operation == "install":
-                if trans.app.config.tool_dependency_dir:
+                if trans.app.toolbox.dependency_manager.uses_tool_shed_dependencies:
                     tool_dependencies_for_installation = []
                     for tool_dependency_id in tool_dependency_ids:
                         tool_dependency = tool_dependency_util.get_tool_dependency(trans.app, tool_dependency_id)
@@ -756,7 +756,7 @@ class AdminToolshed(AdminGalaxy):
                                                                 action='browse_tool_dependency',
                                                                 **kwd))
             elif operation == "install":
-                if trans.app.config.tool_dependency_dir:
+                if trans.app.toolbox.dependency_manager.uses_tool_shed_dependencies:
                     tool_dependencies_for_installation = []
                     for tool_dependency_id in tool_dependency_ids:
                         tool_dependency = tool_dependency_util.get_tool_dependency(trans.app, tool_dependency_id)
@@ -880,7 +880,7 @@ class AdminToolshed(AdminGalaxy):
                     message = 'The updates available for the repository <b>%s</b> ' % escape(str(repository.name))
                     message += 'include newly defined repository or tool dependency definitions, and attempting '
                     message += 'to update the repository resulted in the following error.  Contact the Tool Shed '
-                    message += 'administrator if necessary.<br/>%s' % str(e)
+                    message += 'administrator if necessary.<br/>%s' % unicodify(e)
                     return trans.show_error_message(message)
                 changeset_revisions = updating_to_changeset_revision
             else:
@@ -1048,11 +1048,11 @@ class AdminToolshed(AdminGalaxy):
             # Merge all containers into a single container.
             containers_dict = dd.merge_containers_dicts_for_new_install(containers_dicts)
         # Handle tool dependencies check box.
-        if trans.app.config.tool_dependency_dir is None:
+        if not trans.app.toolbox.dependency_manager.uses_tool_shed_dependencies:
             if includes_tool_dependencies:
                 message = "Tool dependencies defined in this repository can be automatically installed if you set "
                 message += "the value of your <b>tool_dependency_dir</b> setting in your Galaxy config file "
-                message += "(galaxy.ini) and restart your Galaxy server before installing the repository."
+                message += "(galaxy.yml) and restart your Galaxy server before installing the repository."
                 status = "warning"
             install_tool_dependencies_check_box_checked = False
         else:
@@ -1429,10 +1429,10 @@ class AdminToolshed(AdminGalaxy):
         # Handle repository dependencies check box.
         install_repository_dependencies_check_box = CheckboxField('install_repository_dependencies', value=True)
         # Handle tool dependencies check box.
-        if trans.app.config.tool_dependency_dir is None:
+        if not trans.app.toolbox.dependency_manager.uses_tool_shed_dependencies:
             if includes_tool_dependencies:
                 message += "Tool dependencies defined in this repository can be automatically installed if you set the value of your <b>tool_dependency_dir</b> "
-                message += "setting in your Galaxy config file (galaxy.ini) and restart your Galaxy server before installing the repository.  "
+                message += "setting in your Galaxy config file (galaxy.yml) and restart your Galaxy server before installing the repository.  "
                 status = "warning"
             install_tool_dependencies_check_box_checked = False
         else:

@@ -39,7 +39,7 @@ from galaxy.web.framework import (
     helpers,
     url_for
 )
-from galaxy.web.stack import get_app_kwds
+from galaxy.web_stack import get_app_kwds
 
 log = logging.getLogger(__name__)
 
@@ -114,8 +114,8 @@ class WebApplication(base.WebApplication):
         Search for UI controllers in `package_name` and add
         them to the webapp.
         """
-        from galaxy.web.base.controller import BaseUIController
-        from galaxy.web.base.controller import ControllerUnavailable
+        from galaxy.webapps.base.controller import BaseUIController
+        from galaxy.webapps.base.controller import ControllerUnavailable
         package = import_module(package_name)
         controller_dir = package.__path__[0]
         for fname in os.listdir(controller_dir):
@@ -125,7 +125,7 @@ class WebApplication(base.WebApplication):
                 try:
                     module = import_module(module_name)
                 except ControllerUnavailable as exc:
-                    log.debug("%s could not be loaded: %s" % (module_name, str(exc)))
+                    log.debug("%s could not be loaded: %s", module_name, unicodify(exc))
                     continue
                 # Look for a controller inside the modules
                 for key in dir(module):
@@ -139,8 +139,8 @@ class WebApplication(base.WebApplication):
         Search for UI controllers in `package_name` and add
         them to the webapp.
         """
-        from galaxy.web.base.controller import BaseAPIController
-        from galaxy.web.base.controller import ControllerUnavailable
+        from galaxy.webapps.base.controller import BaseAPIController
+        from galaxy.webapps.base.controller import ControllerUnavailable
         package = import_module(package_name)
         controller_dir = package.__path__[0]
         for fname in os.listdir(controller_dir):
@@ -150,7 +150,7 @@ class WebApplication(base.WebApplication):
                 try:
                     module = import_module(module_name)
                 except ControllerUnavailable as exc:
-                    log.debug("%s could not be loaded: %s" % (module_name, str(exc)))
+                    log.debug("%s could not be loaded: %s", module_name, unicodify(exc))
                     continue
                 for key in dir(module):
                     T = getattr(module, key)
@@ -637,7 +637,7 @@ class GalaxyWebTransaction(base.DefaultWebTransaction,
             try:
                 safe_makedirs(os.path.join(self.app.config.user_library_import_dir, user.email))
             except ConfigurationError as e:
-                self.log_event(str(e))
+                self.log_event(unicodify(e))
 
     def user_checks(self, user):
         """
