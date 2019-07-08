@@ -718,6 +718,7 @@ class Configuration(object):
         self.probe_liveness = string_as_bool(kwargs.get('probe_liveness', False))
         if self.probe_liveness:
             self.liveness_probe_directory = kwargs.get("liveness_probe_directory", "/tmp")
+            self.liveness_probe_interval = int(kwargs.get("liveness_probe_interval", 60))
 
         # Compliance/Policy variables
         self.redact_username_during_deletion = False

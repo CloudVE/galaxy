@@ -683,7 +683,10 @@ class AsynchronousJobRunner(BaseJobRunner, Monitors):
         """
 
         liveness_timer = 0
-        liveness_interval = 60
+        if "liveness_probe_interval" in self.app.config.__dict__.keys() and self.app.config.liveness_probe_interval > 0:
+            liveness_interval = self.app.config.liveness_probe_interval
+        else:
+            liveness_interval = 60
         probefile_name = "liveprobe-{}-{}".format(multiprocessing.current_process().name, threading.current_thread().name)
         while True:
             # Take any new watched jobs and put them on the monitor list
